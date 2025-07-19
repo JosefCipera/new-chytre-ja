@@ -1,88 +1,316 @@
-import React, { useState, useEffect, useRef } from "react";
-// Příklad importu v App.jsx
-// import { initChytrJA, callAgent } from './ai-orchestration/chytrJA.js'; // Předpokládám, že chytrJA.js exportuje funkce
-// ... a pokud chcete přímo importovat agenty pro testování
-// import commandAgent from './ai-orchestration/agents/commandAgent.js';
-// import marketingAgent from './ai-orchestration/agents/marketingAgent.js';
+// src/App.jsx
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { loadWebhook } from './api/config'; // Importujeme funkci pro načítání webhooku
 
-// Komponenta pro generické chatovací rozhraní agenta
-function AgentView({ agentName, description, onBack }) {
+// --- Nová komponenta pro zobrazení iframe na samostatné stránce ---
+function IframeView({ url, onBack }) {
+  return (
+    // Změna: Kontejner s max-w-7xl, centrovaný a s paddingem
+    <div className="flex flex-col items-center min-h-screen w-full max-w-7xl mx-auto bg-gray-100 p-4">
+      {url ? (
+        <>
+          <iframe
+            src={url}
+            title="Dashboard Content"
+            // Změna: iframe je w-full uvnitř max-w-7xl kontejneru a má border-0, outline-none
+            className="w-full h-[90vh] border-0 outline-none rounded-md shadow-lg"
+            allowFullScreen
+          ></iframe>
+          <div className="mt-4">
+            <button
+              onClick={onBack}
+              // Změna: Tlačítko modré s hex kódem
+              style={{ backgroundColor: '#3498DB' }}
+              className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Zpět {/* Změna: Text tlačítka zkrácen */}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="text-center text-red-500">
+          Chyba: Žádné URL k zobrazení.
+          <button
+            onClick={onBack}
+            // Změna: Tlačítko modré s hex kódem
+            style={{ backgroundColor: '#3498DB' }}
+            className="mt-4 text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Zpět {/* Změna: Text tlačítka zkrácen */}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// --- Komponenta pro zjednodušené rozhraní agenta (příkazový vstup) ---
+function AgentView({ agentName, description, onBack, onDisplayIframe }) {
 
   const [userInput, setUserInput] = useState("");
-  const [chatHistory, setChatHistory] = useState([]);
+  const [latestAiResponse, setLatestAiResponse] = useState("");
+  const [responseSeverity, setResponseSeverity] = useState('blue');
   const [loading, setLoading] = useState(false);
-  const chatHistoryRef = useRef(null);
+  const [displayMediaContent, setDisplayMediaContent] = useState(null);
+  const [makeWebhookUrl, setMakeWebhookUrl] = useState(null);
+
+  const [commandHistory, setCommandHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   useEffect(() => {
-    if (chatHistoryRef.current) {
-      chatHistoryRef.current.scrollTop = chatHistoryRef.current.scrollHeight;
-    }
-  }, [chatHistory]);
+    const getWebhook = async () => {
+      const url = await loadWebhook();
+      if (url) {
+        setMakeWebhookUrl(url);
+        console.log("Webhook URL načteno pro AgentView:", url);
+      } else {
+        console.error("Nepodařilo se načíst Webhook URL z Google Sheets.");
+        setLatestAiResponse("Chyba: Webhook URL nebylo načteno. Zkontrolujte konfiguraci.");
+        setResponseSeverity('red');
+      }
+    };
+    getWebhook();
+  }, []);
 
   const processCommand = async () => {
     if (!userInput.trim()) return;
+    if (!makeWebhookUrl) {
+      setLatestAiResponse("Webhook URL není k dispozici. Zkuste to prosím později.");
+      setResponseSeverity('red');
+      return;
+    }
 
-    setChatHistory((prev) => [...prev, { text: userInput, sender: "user" }]);
+    const currentUserInput = userInput;
+    setLatestAiResponse("Zpracovávám váš požadavek...");
+    setResponseSeverity('blue');
+
+    if (currentUserInput.trim() !== "" && (commandHistory.length === 0 || commandHistory[commandHistory.length - 1] !== currentUserInput)) {
+      setCommandHistory((prev) => [...prev, currentUserInput]);
+    }
+    setHistoryIndex(-1);
+
     setUserInput("");
     setLoading(true);
+    setDisplayMediaContent(null);
 
     try {
-      // Zde by se volala skutečná AI orchestrace pro daného agenta
-      // Pro tuto fázi pouze simulujeme odpověď
-      const simulatedResponse = `Ahoj! Jsem ${agentName}. Zpracoval/a jsem váš dotaz: "${userInput}". Momentálně jsem ve vývoji, ale v budoucnu vám pomohu s: ${description}.`;
+      const response = await fetch(makeWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userQuery: currentUserInput, agentName: agentName }),
+      });
 
-      setTimeout(() => {
-        setChatHistory((prev) => [...prev, { text: simulatedResponse, sender: "ai" }]);
-        setLoading(false);
-      }, 1000); // Simulace načítání
+      if (!response.ok) {
+        throw new Error(`HTTP chyba! Status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data && data.response_type) {
+        let aiMessage = '';
+        let messageSeverity = 'blue'; // Nastavíme defaultní závažnost na blue
+
+        const responseType = data.response_type.trim().toLowerCase().replace(/^"|"$/g, '');
+        let responseData = data.response_data; // Nyní responseData může být string NEBO objekt
+
+        // *************** ZDE JE KLÍČOVÁ ZMĚNA PRO NOTIFIKACE ***************
+        if (responseType === 'notification' && typeof responseData === 'object' && responseData !== null) {
+          // Pokud je response_type "notification" A responseData je již objekt (jak vrací Make.com)
+          aiMessage = `Notifikace: ${responseData.message || 'Zpráva notifikace není k dispozici.'}`;
+          messageSeverity = responseData.severity || 'green'; // Použijeme závažnost z dat, jinak default 'green'
+          // Doba trvání notifikace (duration) se nyní nepoužívá pro automatické skrytí na frontendu,
+          // ale hodnota je dostupná v responseData.duration
+          if (responseData.duration) {
+            console.log(`Doba trvání notifikace: ${responseData.duration}ms`);
+            // Zde byste mohli implementovat setTimeout pro automatické skrytí
+          }
+        } else {
+          // Pro ostatní typy nebo pokud response_data není objekt (např. prostý text), zpracujeme jako string
+          responseData = typeof responseData === 'string' ? responseData.replace(/^"|"$/g, '') : responseData;
+
+          // Zde následuje stávající switch pro ostatní response_type
+          switch (responseType) {
+            case 'text':
+              aiMessage = responseData;
+              messageSeverity = 'blue';
+              break;
+            case 'dashboard_looker':
+            case 'url':
+            case 'excel':
+            case 'pdf':
+            case 'word':
+            case 'ppt':
+              urlToDisplayInIframe = responseData;
+              if (urlToDisplayInIframe) {
+                aiMessage = `Váš požadavek byl úspěšně zpracován. Obsah se otevírá na nové stránce.`;
+                messageSeverity = 'green';
+                onDisplayIframe(urlToDisplayInIframe);
+              } else {
+                aiMessage = `Nalezen povel pro obsah, ale URL je prázdná nebo neplatná.`;
+                messageSeverity = 'yellow';
+              }
+              break;
+            case 'video':
+              aiMessage = `Zde je video na téma:`;
+              setDisplayMediaContent({ type: 'video', src: responseData, title: 'Video Content' });
+              messageSeverity = 'blue';
+              break;
+            case 'audio':
+              aiMessage = `Zde je audio na téma:`;
+              setDisplayMediaContent({ type: 'audio', src: responseData, title: 'Audio Content' });
+              messageSeverity = 'blue';
+              break;
+            case 'image':
+              aiMessage = `Zde je obrázek na téma:`;
+              setDisplayMediaContent({ type: 'image', src: responseData, alt: 'Image Content' });
+              messageSeverity = 'blue';
+              break;
+            // Případ 'notification' je nyní zpracován výše, mimo tento switch
+            default:
+              aiMessage = `Neznámý typ odpovědi: ${responseType}`;
+              messageSeverity = 'yellow';
+              break;
+          }
+        }
+        // *************** KONEC ZMĚN PRO NOTIFIKACE ***************
+
+        setLatestAiResponse(aiMessage);
+        setResponseSeverity(messageSeverity);
+
+      } else {
+        setLatestAiResponse("AI agent neodpověděl smysluplně. Zkuste jiný dotaz.");
+        setResponseSeverity('yellow');
+      }
+
+      setLoading(false);
 
     } catch (error) {
-      console.error("Chyba při komunikaci s AI:", error);
-      setChatHistory((prev) => [...prev, { text: "Omlouvám se, došlo k chybě při zpracování vašeho požadavku.", sender: "ai" }]);
+      console.error("Chyba při komunikaci s Make.com:", error);
+      setLatestAiResponse("Omlouvám se, došlo k chybě při zpracování vašeho požadavku. Zkuste to prosím znovu.");
+      setResponseSeverity('red');
       setLoading(false);
     }
   };
 
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (historyIndex < commandHistory.length - 1) {
+        const newIndex = historyIndex + 1;
+        setHistoryIndex(newIndex);
+        setUserInput(commandHistory[commandHistory.length - 1 - newIndex]);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (historyIndex > 0) {
+        const newIndex = historyIndex - 1;
+        setHistoryIndex(newIndex);
+        setUserInput(commandHistory[commandHistory.length - 1 - newIndex]);
+      } else if (historyIndex === 0) {
+        setHistoryIndex(-1);
+        setUserInput("");
+      }
+    }
+  }, [commandHistory, historyIndex]);
+
+  const getSeverityClass = (severity) => {
+    switch (severity) {
+      case 'green':
+        return 'bg-green-100 text-green-700 border-l-4 border-green-800';
+      case 'blue':
+        return 'bg-blue-100 text-blue-700 border-l-4 border-blue-800';
+      case 'red':
+        return 'bg-red-100 text-red-700 border-l-4 border-red-800';
+      case 'yellow':
+        return 'bg-yellow-100 text-yellow-700 border-l-4 border-yellow-800';
+      case 'urgent': // Přidáno pro "urgent" ze screenu Make.com
+        return 'bg-red-200 text-red-800 border-l-4 border-red-900'; // Můžete si vybrat barvu
+      case 'informative': // Přidáno pro "informative" ze screenu Make.com
+        return 'bg-blue-200 text-blue-800 border-l-4 border-blue-900'; // Můžete si vybrat barvu
+      case 'warning': // Přidáno pro "warning" ze screenu Make.com
+        return 'bg-orange-200 text-orange-800 border-l-4 border-orange-900'; // Můžete si vybrat barvu
+      default:
+        return 'bg-gray-100 text-gray-700 border-l-4 border-gray-800';
+    }
+  };
+
   return (
-    <div className="agent-chat-container bg-white rounded-lg shadow-xl p-6 max-w-2xl w-full mx-auto">
+    <div className="agent-command-container bg-white rounded-lg shadow-xl p-6 max-w-7xl w-full mx-auto flex flex-col items-center">
       <h2 className="text-3xl font-bold text-center text-gray-800 mb-4">{agentName}</h2>
       <p className="text-center text-gray-600 mb-6">{description}</p>
 
-      <div className="chat-history-container h-64 overflow-y-auto border border-gray-300 rounded-md p-4 mb-4 bg-gray-50" ref={chatHistoryRef}>
-        {chatHistory.length === 0 ? (
-          <p className="text-gray-500 text-center">Zatím žádná konverzace. Zeptejte se na něco!</p>
-        ) : (
-          chatHistory.map((msg, index) => (
-            <div key={index} className={`mb-2 ${msg.sender === 'user' ? 'text-right' : 'text-left'}`}>
-              <span className={`inline-block p-2 rounded-lg ${msg.sender === 'user' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-800'}`}>
-                {msg.text}
-              </span>
-            </div>
-          ))
-        )}
+      <div className="microphone-container mb-6 flex flex-col items-center">
+        <img id="microphoneIcon" src="images/microphone-192.png" alt="Microphone Icon" className="mic-icon w-36 h-36 mb-2 opacity-75" />
+        <div className="wave wave1"></div>
+        <div className="wave wave2"></div>
+        <div className="wave wave3"></div>
       </div>
 
-      <div className="flex">
+      {/* Notifikace */}
+      {latestAiResponse && (
+        <div className={`voice-status p-3 rounded-lg mb-6 ${getSeverityClass(responseSeverity)} w-fit mx-auto`}>
+          {latestAiResponse}
+        </div>
+      )}
+
+      {/* Video obsah */}
+      {displayMediaContent && displayMediaContent.type === 'video' && (
+        <div className="mt-4 w-full mb-6">
+          <video controls autoPlay className="w-[600px] block mx-auto"> {/* Změněna šířka na 600px a přidán autoplay */}
+            <source src={displayMediaContent.src} type="video/mp4" />
+            Tvůj prohlížeč nepodporuje video tag.
+          </video>
+        </div>
+      )}
+      {/* Audio obsah */}
+      {displayMediaContent && displayMediaContent.type === 'audio' && (
+        <div className="mt-4 flex justify-center w-full mb-6">
+          <audio controls autoPlay className="w-[400px]"> {/* Přidán autoplay */}
+            <source src={displayMediaContent.src} type="audio/mpeg" />
+            Tvůj prohlížeč nepodporuje audio tag.
+          </audio>
+        </div>
+      )}
+      {/* Obrázek obsah */}
+      {displayMediaContent && displayMediaContent.type === 'image' && (
+        <div className="mt-4 w-full text-center mb-6">
+          <img src={displayMediaContent.src} alt={displayMediaContent.alt} className="max-w-full h-auto mx-auto" />
+        </div>
+      )}
+
+      {/* Vstupní pole - nová šířka 600px */}
+      <div className="w-[600px] mb-4">
         <input
           type="text"
-          className="flex-grow border border-gray-300 rounded-l-md p-2 focus:ring-indigo-500 focus:border-indigo-500"
-          placeholder="Zadejte dotaz..."
+          id="userInput"
+          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500" // w-full v kontejneru 600px, zaoblené okraje, tenčí ring
+          placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
           onKeyPress={(e) => { if (e.key === 'Enter') processCommand(); }}
+          onKeyDown={handleKeyDown}
         />
+      </div>
+
+      {/* Kontejner pro tlačítka "Odeslat" a "Zpět na Marketplace" - prohozené pořadí, stejná velikost */}
+      <div className="flex justify-center space-x-4 mt-4 w-full">
         <button
           onClick={processCommand}
-          disabled={loading}
-          className="bg-indigo-600 text-white py-2 px-4 rounded-r-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+          disabled={loading || !makeWebhookUrl}
+          // Tlačítko Odeslat
+          style={{ backgroundColor: '#3498DB' }}
+          className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
           {loading ? "Odesílám..." : "Odeslat"}
         </button>
-      </div>
-      <div className="text-center mt-4">
         <button
           onClick={onBack}
-          className="bg-gray-500 text-white py-2 px-4 rounded-md shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+          // Tlačítko Zpět na Marketplace
+          style={{ backgroundColor: '#3498DB' }}
+          className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
           Zpět na Marketplace
         </button>
@@ -91,9 +319,12 @@ function AgentView({ agentName, description, onBack }) {
   );
 }
 
-// Komponenta pro specifický formulář Marketing Agenta
+
+// --- Komponenta pro Marketing Agenta (s původním obsahem z vašeho souboru) ---
 function MarketingAgentSpecificView({ onBack }) {
-  // Stavy pro data nového kontaktu (zde pro demo účely)
+  const [postText, setPostText] = useState("");
+  const [generatedPost, setGeneratedPost] = useState("");
+  const [loading, setLoading] = useState(false);
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
@@ -107,11 +338,8 @@ function MarketingAgentSpecificView({ onBack }) {
   const [aiResponse, setAiResponse] = useState("");
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
 
-  // Funkce pro extrakci dat z LinkedIn textu (zjednodušená verze)
   const extractDataFromLinkedin = () => {
-    // Toto je velmi zjednodušená ukázka, skutečná extrakce by vyžadovala robustnější logiku nebo AI
     const extractedFirstName = linkedinText.split(',')[0]?.split(' ')[0] || '';
     const extractedLastName = linkedinText.split(',')[0]?.split(' ')[1] || '';
     const extractedPosition = linkedinText.includes('Pozice:') ? linkedinText.split('Pozice:')[1].split(',')[0].trim() : '';
@@ -130,16 +358,11 @@ function MarketingAgentSpecificView({ onBack }) {
     setMessage(null);
     setError(null);
 
-    // Simulace odesílání dat
     console.log("Odesílám kontakt do Make.com/HubSpot:", { firstName, lastName, email, company, industry, numEmployees, position, notes });
-
-    // Zde byste volali Váš Make.com webhook
-    // const response = await fetch(makeWebhookUrlMarketing, { ... });
 
     setTimeout(() => {
       setMessage("Kontakt byl úspěšně uložen (simulace)!");
       setLoading(false);
-      // Optional: clear form
     }, 1500);
   };
 
@@ -149,12 +372,9 @@ function MarketingAgentSpecificView({ onBack }) {
     setError(null);
     setMessage(null);
 
-    // Simulace volání AI pro generování obsahu
     console.log("Generuji AI obsah pro dotaz:", aiPrompt);
 
     try {
-      // Zde byste volali Vertex AI nebo jinou AI službu
-      // const aiResult = await callVertexAI(aiPrompt, { context: { firstName, lastName, company, industry } });
       const simulatedAiResult = `Na základě vašeho požadavku a informací o kontaktu (jméno: ${firstName}, firma: ${company}), zde jsou marketingové nápady: ${aiPrompt}`;
 
       setAiResponse(simulatedAiResult);
@@ -288,24 +508,19 @@ function MarketplaceView({ onLaunchAgent }) {
 
   return (
     <div className="marketplace-container min-h-screen w-full bg-[#f0f0f0] flex flex-col items-center">
-      {/* Hlavička - již upraveno písmo */}
       <header className="w-full bg-[#2c3e50] text-white p-8 text-center shadow-md">
         <h1 className="text-3xl sm:text-4xl font-bold text-white">Smart Agent Platform</h1>
         <h2 className="text-lg sm:text-xl mt-2 text-white">Centrum specializovaných agentů</h2>
       </header>
 
-      {/* Sekce s popisem "Vyberte agenty..." */}
       <section className="w-full max-w-4xl bg-[#e6f0fa] rounded-lg mx-auto mt-12 p-8 text-center shadow-md">
         <p className="text-lg text-[#666]">Vyberte agenty, které potřebujete. Jedna aplikace - nekonečné možnosti.</p>
       </section>
 
-      {/* Hlavní obsah s Marketplace gridem */}
       <main className="w-full max-w-7xl p-6 mt-8 flex-grow">
-        {/* Zde klíčová změna: Používáme čistý grid systém Tailwindu pro rozestupy */}
-        <div className="marketplace-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 justify-items-center"> {/* Vrátili jsme gap-4 pro začátek, můžeme zmenšit na gap-2 */}
+        <div className="marketplace-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 justify-items-center">
           {agents.map((agent) => (
-            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between"> {/* Odebráno width: "250px" */}
-              {/* Zvětšení čtverců obrázků agentů - již provedeno v předchozí iteraci */}
+            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between">
               <img
                 src={agent.image}
                 alt={agent.name}
@@ -313,11 +528,9 @@ function MarketplaceView({ onLaunchAgent }) {
                 onClick={() => onLaunchAgent(agent.type)}
               />
               <h3 className="text-xl font-semibold text-[#2c3e50] mb-2">{agent.name}</h3>
-              {/* Zkrácení mezery pod popisem (mb-2 místo mb-4) a bez flex-grow */}
               <p className="text-center text-[#666] text-sm mb-2">
                 {agent.description}
               </p>
-              {/* Tlačítko se posune výš díky zmenšenému mb na p tagu a justify-between na rodiči */}
               <button
                 onClick={() => onLaunchAgent(agent.type)}
                 className="bg-[#3498db] text-white py-2 px-4 rounded-md cursor-pointer transition-colors duration-200 hover:bg-[#2980b9] w-full"
@@ -329,7 +542,6 @@ function MarketplaceView({ onLaunchAgent }) {
         </div>
       </main>
 
-      {/* Patička */}
       <footer className="w-full bg-[#2c3e50] text-white text-center p-4">
         <p>© 2025 Smart Agent Platform. Všechna práva vyhrazena.</p>
       </footer>
@@ -340,11 +552,18 @@ function MarketplaceView({ onLaunchAgent }) {
 
 // Hlavní komponenta aplikace
 function App() {
-  const [currentView, setCurrentView] = useState('marketplace'); // 'marketplace', 'marketing', 'finance', 'vyroba', 'strateg'
+  const [currentView, setCurrentView] = useState('marketplace');
+  const [iframeUrl, setIframeUrl] = useState(null);
+  const [previousAgentView, setPreviousAgentView] = useState(null);
 
-  // Funkce pro spuštění agenta a změnu zobrazení
   const launchAgent = (agentType) => {
+    setPreviousAgentView(agentType);
     setCurrentView(agentType);
+  };
+
+  const handleDisplayIframe = (url) => {
+    setIframeUrl(url);
+    setCurrentView('iframe_view');
   };
 
   const renderView = () => {
@@ -356,14 +575,20 @@ function App() {
       case 'finance':
       case 'vyroba':
       case 'strateg':
-        // Předáváme název agenta a popis do generické chat komponenty
         const agentInfo = {
           finance: { name: "AI agent Finance", description: "Specialista na finanční řízení a podporu rozhodování." },
           vyroba: { name: "AI agent Výroba", description: "Expert na plánování výroby a simulaci vytížení kapacit." },
           strateg: { name: "AI agent Stratég", description: "Specialista na inovativní byznys modely a strategie." },
         };
         const { name, description } = agentInfo[currentView];
-        return <AgentView agentName={name} description={description} onBack={() => setCurrentView('marketplace')} />;
+        return <AgentView agentName={name} description={description} onBack={() => setCurrentView('marketplace')} onDisplayIframe={handleDisplayIframe} />;
+      case 'iframe_view':
+        return (
+          <IframeView
+            url={iframeUrl}
+            onBack={() => setCurrentView(previousAgentView || 'marketplace')}
+          />
+        );
       default:
         return <MarketplaceView onLaunchAgent={launchAgent} />; // Fallback
     }

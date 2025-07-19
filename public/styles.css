@@ -1,0 +1,79 @@
+/* public/styles.css */
+
+/* Animace vln kolem mikrofonu */
+.microphone-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  /* Důležité: nastavte velikost kontejneru pro vlny */
+  width: 180px;
+  height: 180px;
+}
+
+.mic-icon {
+  z-index: 2;
+  /* Zajistí, že ikona je nad vlnami */
+  position: relative;
+}
+
+.wave {
+  position: absolute;
+  border: 2px solid rgba(0, 128, 128, 0.7);
+  /* Tyrkysová barva pro vlny */
+  border-radius: 50%;
+  animation: pulse-wave 2s infinite ease-out;
+  opacity: 0;
+  z-index: 1;
+  /* Vlny pod ikonou */
+}
+
+.wave1 {
+  width: 100px;
+  height: 100px;
+  animation-delay: 0s;
+}
+
+.wave2 {
+  width: 130px;
+  height: 130px;
+  animation-delay: 0.5s;
+}
+
+.wave3 {
+  width: 160px;
+  height: 160px;
+  animation-delay: 1s;
+}
+
+@keyframes pulse-wave {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+/* Volitelné: Jemná záře na ikoně mikrofonu */
+.mic-icon {
+  filter: drop-shadow(0 0 8px rgba(0, 128, 128, 0.6));
+  /* Tyrkysová záře */
+}
+
+/* Třída pro tlačítko "Odeslat" s přesnou barvou #3498DB */
+.custom-send-button {
+  background-color: #3498DB;
+  transition: background-color 0.2s ease-in-out;
+}
+
+.custom-send-button:hover {
+  background-color: #2980b9;
+  /* Trochu tmavší odstín pro hover efekt */
+}
+
+/* Zde můžete přidat další globální styly nebo úpravy Tailwindu, pokud je to nutné */
