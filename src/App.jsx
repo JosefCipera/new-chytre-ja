@@ -143,14 +143,14 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
             case 'pdf':
             case 'word':
             case 'ppt':
-              urlToDisplayInIframe = responseData;
+              let urlToDisplayInIframe = responseData;
               if (urlToDisplayInIframe) {
                 aiMessage = `Váš požadavek byl úspěšně zpracován. Obsah se otevírá na nové stránce.`;
                 messageSeverity = 'green';
                 onDisplayIframe(urlToDisplayInIframe);
               } else {
                 aiMessage = `Nalezen povel pro obsah, ale URL je prázdná nebo neplatná.`;
-                messageSeverity = 'yellow';
+                messageSeverity = 'warning';
               }
               break;
             case 'video':
@@ -171,7 +171,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
             // Případ 'notification' je nyní zpracován výše, mimo tento switch
             default:
               aiMessage = `Neznámý typ odpovědi: ${responseType}`;
-              messageSeverity = 'yellow';
+              messageSeverity = 'warning';
               break;
           }
         }
@@ -182,7 +182,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
 
       } else {
         setLatestAiResponse("AI agent neodpověděl smysluplně. Zkuste jiný dotaz.");
-        setResponseSeverity('yellow');
+        setResponseSeverity('warning');
       }
 
       setLoading(false);
@@ -190,7 +190,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
     } catch (error) {
       console.error("Chyba při komunikaci s Make.com:", error);
       setLatestAiResponse("Omlouvám se, došlo k chybě při zpracování vašeho požadavku. Zkuste to prosím znovu.");
-      setResponseSeverity('red');
+      setResponseSeverity('urgent');
       setLoading(false);
     }
   };
@@ -216,31 +216,28 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
     }
   }, [commandHistory, historyIndex]);
 
+  // Funkce pro získání Tailwind CSS tříd na základě závažnosti notifikace
   const getSeverityClass = (severity) => {
     switch (severity) {
-      case 'green':
-        return 'bg-green-100 text-green-700 border-l-4 border-green-800';
-      case 'blue':
-        return 'bg-blue-100 text-blue-700 border-l-4 border-blue-800';
-      case 'red':
-        return 'bg-red-100 text-red-700 border-l-4 border-red-800';
-      case 'yellow':
-        return 'bg-yellow-100 text-yellow-700 border-l-4 border-yellow-800';
-      case 'urgent': // Přidáno pro "urgent" ze screenu Make.com
-        return 'bg-red-200 text-red-800 border-l-4 border-red-900'; // Můžete si vybrat barvu
-      case 'informative': // Přidáno pro "informative" ze screenu Make.com
-        return 'bg-blue-200 text-blue-800 border-l-4 border-blue-900'; // Můžete si vybrat barvu
-      case 'warning': // Přidáno pro "warning" ze screenu Make.com
-        return 'bg-orange-200 text-orange-800 border-l-4 border-orange-900'; // Můžete si vybrat barvu
+      case 'urgent': // Červená (pozadí: FF E5 E5, text: 99 00 00)
+        return 'bg-[rgb(255,229,229)] text-[rgb(153,0,0)] border-l-4 border-[rgb(153,0,0)]';
+      case 'success': // Zelená (pozadí: E6 FF E6, text: 36 8A 36)
+        return 'bg-[rgb(230,255,230)] text-[rgb(54,138,54)] border-l-4 border-[rgb(54,138,54)]';
+      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B)
+        return 'bg-[rgb(224,247,255)] text-[rgb(31,78,123)] border-l-4 border-[rgb(31,78,123)]';
+      case 'warning': // Oranžová (pozadí: #FF9D01 -> rgb(255,157,1), text: tmavší -> rgb(153,94,0))
+        return 'bg-[rgb(255,157,1)] text-[rgb(153,94,0)] border-l-4 border-[rgb(153,94,0)]';
       default:
-        return 'bg-gray-100 text-gray-700 border-l-4 border-gray-800';
+        // Výchozí barva, pokud není specifikována nebo je neznámá
+        return 'bg-gray-100 text-gray-800 border-l-4 border-gray-800'; // Standardní Tailwind šedá
     }
   };
 
   return (
     <div className="agent-command-container bg-white rounded-lg shadow-xl p-6 max-w-7xl w-full mx-auto flex flex-col items-center">
-      <h2 className="text-3xl font-bold text-center text-gray-800 mb-4">{agentName}</h2>
-      <p className="text-center text-gray-600 mb-6">{description}</p>
+      {/* Skrytí nadpisu a popisu agenta na mobilu */}
+      <h2 className="text-3xl font-bold text-center text-gray-800 mb-4 hidden sm:block">{agentName}</h2>
+      <p className="text-center text-gray-600 mb-6 hidden sm:block">{description}</p>
 
       <div className="microphone-container mb-6 flex flex-col items-center">
         <img id="microphoneIcon" src="images/microphone-192.png" alt="Microphone Icon" className="mic-icon w-36 h-36 mb-2 opacity-75" />
@@ -281,12 +278,13 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         </div>
       )}
 
-      {/* Vstupní pole - nová šířka 600px */}
-      <div className="w-[600px] mb-4">
+      {/* Vstupní pole - zúžení a tenký obrys */}
+      <div className="w-full sm:w-2/3 md:w-1/2 lg:w-1/3 mb-4 max-w-md"> {/* Zúženo pro mobil a větší obrazovky, max-width */}
         <input
           type="text"
           id="userInput"
-          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-teal-500 focus:border-teal-500" // w-full v kontejneru 600px, zaoblené okraje, tenčí ring
+          // Oprava syntaxe komentáře:
+          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500" /* Tenký obrys, modrý focus */
           placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
@@ -509,8 +507,9 @@ function MarketplaceView({ onLaunchAgent }) {
   return (
     <div className="marketplace-container min-h-screen w-full bg-[#f0f0f0] flex flex-col items-center">
       <header className="w-full bg-[#2c3e50] text-white p-8 text-center shadow-md">
-        <h1 className="text-3xl sm:text-4xl font-bold text-white">Smart Agent Platform</h1>
-        <h2 className="text-lg sm:text-xl mt-2 text-white">Centrum specializovaných agentů</h2>
+        {/* Skrytí nadpisu a podnadpisu na mobilu */}
+        <h1 className="text-3xl sm:text-4xl font-bold text-white hidden sm:block">Smart Agent Platform</h1>
+        <h2 className="text-lg sm:text-xl mt-2 text-white hidden sm:block">Centrum specializovaných agentů</h2>
       </header>
 
       <section className="w-full max-w-4xl bg-[#e6f0fa] rounded-lg mx-auto mt-12 p-8 text-center shadow-md">
@@ -518,9 +517,10 @@ function MarketplaceView({ onLaunchAgent }) {
       </section>
 
       <main className="w-full max-w-7xl p-6 mt-8 flex-grow">
+        {/* Responzivní grid pro agenty: 1 sloupec na mobilu, 2 na sm, 4 na lg */}
         <div className="marketplace-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 justify-items-center">
           {agents.map((agent) => (
-            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between">
+            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between w-full max-w-sm"> {/* w-full pro mobil, max-w-sm pro omezení šířky */}
               <img
                 src={agent.image}
                 alt={agent.name}
