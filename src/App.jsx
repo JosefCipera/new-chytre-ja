@@ -82,8 +82,9 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
     }
 
     const currentUserInput = userInput;
+    // Změna: "Zpracovávám váš požadavek..." bude mít závažnost 'informative' (modrá)
     setLatestAiResponse("Zpracovávám váš požadavek...");
-    setResponseSeverity('blue');
+    setResponseSeverity('informative'); // Opraveno na 'informative'
 
     if (currentUserInput.trim() !== "" && (commandHistory.length === 0 || commandHistory[commandHistory.length - 1] !== currentUserInput)) {
       setCommandHistory((prev) => [...prev, currentUserInput]);
@@ -223,10 +224,10 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         return 'bg-[rgb(255,229,229)] text-[rgb(153,0,0)] border-l-4 border-[rgb(153,0,0)]';
       case 'success': // Zelená (pozadí: E6 FF E6, text: 36 8A 36)
         return 'bg-[rgb(230,255,230)] text-[rgb(54,138,54)] border-l-4 border-[rgb(54,138,54)]';
-      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B)
+      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B) - původní modrá
         return 'bg-[rgb(224,247,255)] text-[rgb(31,78,123)] border-l-4 border-[rgb(31,78,123)]';
-      case 'warning': // Oranžová (pozadí: #FF9D01 -> rgb(255,157,1), text: tmavší -> rgb(153,94,0))
-        return 'bg-[rgb(255,157,1)] text-[rgb(153,94,0)] border-l-4 border-[rgb(153,94,0)]';
+      case 'warning': // Oranžová (NOVÉ pozadí: #FCB34D -> rgb(252,179,77), NOVÝ text: #E05F00 -> rgb(224,95,0))
+        return 'bg-[rgb(252,179,77)] text-[rgb(224,95,0)] border-l-4 border-[rgb(224,95,0)]';
       default:
         // Výchozí barva, pokud není specifikována nebo je neznámá
         return 'bg-gray-100 text-gray-800 border-l-4 border-gray-800'; // Standardní Tailwind šedá
@@ -283,7 +284,6 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         <input
           type="text"
           id="userInput"
-          // Oprava syntaxe komentáře:
           className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500" /* Tenký obrys, modrý focus */
           placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
