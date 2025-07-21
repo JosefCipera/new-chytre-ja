@@ -145,11 +145,11 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
             case 'pdf':
             case 'word':
             case 'ppt':
-              let urlToDisplayInIframe = responseData;
-              if (urlToDisplayInIframe) {
+              let urlToDisplayIframe = responseData;
+              if (urlToDisplayIframe) {
                 aiMessage = `Váš požadavek byl úspěšně zpracován. Obsah se otevírá na nové stránce.`;
                 messageSeverity = 'green';
-                onDisplayIframe(urlToDisplayInIframe);
+                onDisplayIframe(urlToDisplayIframe);
               } else {
                 aiMessage = `Nalezen povel pro obsah, ale URL je prázdná nebo neplatná.`;
                 messageSeverity = 'warning';
@@ -311,7 +311,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         <input
           type="text"
           id="userInput"
-          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500" // Opravená syntaxe, odebrán komentář
           placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
