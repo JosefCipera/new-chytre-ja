@@ -141,6 +141,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
             case 'dashboard_looker':
             case 'url':
             case 'excel':
+            case 'url': // Opakuje se, ale není to chyba logiky
             case 'pdf':
             case 'word':
             case 'ppt':
@@ -219,19 +220,45 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
 
   // Funkce pro získání Tailwind CSS tříd na základě závažnosti notifikace
   const getSeverityClass = (severity) => {
+    let textColorClass = '';
+    let bgColorClass = '';
+    let borderColorClass = ''; // Pro 1px rámeček
+    let borderLeftColorClass = ''; // Pro 4px levý rámeček
+
     switch (severity) {
       case 'urgent': // Červená (pozadí: FF E5 E5, text: 99 00 00)
-        return 'bg-[rgb(255,229,229)] text-[rgb(153,0,0)] border-l-4 border-[rgb(153,0,0)]';
+        textColorClass = 'text-[rgb(153,0,0)]';
+        bgColorClass = 'bg-[rgb(255,229,229)]';
+        borderColorClass = 'border-[rgb(153,0,0)]';
+        borderLeftColorClass = 'border-l-[rgb(153,0,0)]'; // Pro 4px levý rámeček
+        break;
       case 'success': // Zelená (pozadí: E6 FF E6, text: 36 8A 36)
-        return 'bg-[rgb(230,255,230)] text-[rgb(54,138,54)] border-l-4 border-[rgb(54,138,54)]';
-      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B) - původní modrá
-        return 'bg-[rgb(224,247,255)] text-[rgb(31,78,123)] border-l-4 border-[rgb(31,78,123)]';
-      case 'warning': // Oranžová (NOVÉ pozadí: #FCB34D -> rgb(252,179,77), NOVÝ text: #E05F00 -> rgb(224,95,0))
-        return 'bg-[rgb(252,179,77)] text-[rgb(224,95,0)] border-l-4 border-[rgb(224,95,0)]';
+        textColorClass = 'text-[rgb(54,138,54)]';
+        bgColorClass = 'bg-[rgb(230,255,230)]';
+        borderColorClass = 'border-[rgb(54,138,54)]';
+        borderLeftColorClass = 'border-l-[rgb(54,138,54)]';
+        break;
+      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B)
+        textColorClass = 'text-[rgb(31,78,123)]';
+        bgColorClass = 'bg-[rgb(224,247,255)]';
+        borderColorClass = 'border-[rgb(31,78,123)]';
+        borderLeftColorClass = 'border-l-[rgb(31,78,123)]';
+        break;
+      case 'warning': // Oranžová (NOVÉ pozadí: #FAE5C6 -> rgb(250,229,198), text: #E05F00 -> rgb(224,95,0))
+        textColorClass = 'text-[rgb(224,95,0)]';
+        bgColorClass = 'bg-[rgb(250,229,198)]'; // Nové pozadí
+        borderColorClass = 'border-[rgb(224,95,0)]';
+        borderLeftColorClass = 'border-l-[rgb(224,95,0)]';
+        break;
       default:
-        // Výchozí barva, pokud není specifikována nebo je neznámá
-        return 'bg-gray-100 text-gray-800 border-l-4 border-gray-800'; // Standardní Tailwind šedá
+        textColorClass = 'text-gray-800';
+        bgColorClass = 'bg-gray-100';
+        borderColorClass = 'border-gray-800';
+        borderLeftColorClass = 'border-l-gray-800';
+        break;
     }
+    // Kombinace tříd: 1px rámeček všude, a navíc 4px na levé straně (přepíše 1px na levé straně)
+    return `${bgColorClass} ${textColorClass} border ${borderColorClass} border-l-4 ${borderLeftColorClass}`;
   };
 
   return (
@@ -257,7 +284,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
       {/* Video obsah */}
       {displayMediaContent && displayMediaContent.type === 'video' && (
         <div className="mt-4 w-full mb-6">
-          <video controls autoPlay className="w-[600px] block mx-auto"> {/* Změněna šířka na 600px a přidán autoplay */}
+          <video controls autoPlay className="w-[600px] block mx-auto">
             <source src={displayMediaContent.src} type="video/mp4" />
             Tvůj prohlížeč nepodporuje video tag.
           </video>
@@ -266,7 +293,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
       {/* Audio obsah */}
       {displayMediaContent && displayMediaContent.type === 'audio' && (
         <div className="mt-4 flex justify-center w-full mb-6">
-          <audio controls autoPlay className="w-[400px]"> {/* Přidán autoplay */}
+          <audio controls autoPlay className="w-[400px]">
             <source src={displayMediaContent.src} type="audio/mpeg" />
             Tvůj prohlížeč nepodporuje audio tag.
           </audio>
@@ -280,11 +307,11 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
       )}
 
       {/* Vstupní pole - zúžení a tenký obrys */}
-      <div className="w-full sm:w-2/3 md:w-1/2 lg:w-1/3 mb-4 max-w-md"> {/* Zúženo pro mobil a větší obrazovky, max-width */}
+      <div className="w-full sm:w-2/3 md:w-1/2 lg:w-1/3 mb-4 max-w-md">
         <input
           type="text"
           id="userInput"
-          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500" /* Tenký obrys, modrý focus */
+          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
@@ -298,7 +325,6 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         <button
           onClick={processCommand}
           disabled={loading || !makeWebhookUrl}
-          // Tlačítko Odeslat
           style={{ backgroundColor: '#3498DB' }}
           className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
@@ -306,7 +332,6 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         </button>
         <button
           onClick={onBack}
-          // Tlačítko Zpět na Marketplace
           style={{ backgroundColor: '#3498DB' }}
           className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
@@ -520,7 +545,7 @@ function MarketplaceView({ onLaunchAgent }) {
         {/* Responzivní grid pro agenty: 1 sloupec na mobilu, 2 na sm, 4 na lg */}
         <div className="marketplace-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 justify-items-center">
           {agents.map((agent) => (
-            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between w-full max-w-sm"> {/* w-full pro mobil, max-w-sm pro omezení šířky */}
+            <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between w-full max-w-sm">
               <img
                 src={agent.image}
                 alt={agent.name}
