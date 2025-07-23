@@ -140,30 +140,37 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
               break;
             case 'dashboard_looker':
             case 'url':
-            case 'excel':
-            case 'url': // Opakuje se, ale není to chyba logiky
-            case 'pdf':
-            case 'word':
-            case 'ppt':
+            case 'video': // Převedeno na zobrazení v iframe
+            case 'audio': // Převedeno na zobrazení v iframe
+              // Tyto typy používají přímou URL v iframe
               let urlToDisplayIframe = responseData;
               if (urlToDisplayIframe) {
                 aiMessage = `Váš požadavek byl úspěšně zpracován. Obsah se otevírá na nové stránce.`;
                 messageSeverity = 'green';
                 onDisplayIframe(urlToDisplayIframe);
+                setDisplayMediaContent(null); // Zajistíme skrytí nativního přehrávače
               } else {
                 aiMessage = `Nalezen povel pro obsah, ale URL je prázdná nebo neplatná.`;
                 messageSeverity = 'warning';
               }
               break;
-            case 'video':
-              aiMessage = `Zde je video na téma:`;
-              setDisplayMediaContent({ type: 'video', src: responseData, title: 'Video Content' });
-              messageSeverity = 'blue';
-              break;
-            case 'audio':
-              aiMessage = `Zde je audio na téma:`;
-              setDisplayMediaContent({ type: 'audio', src: responseData, title: 'Audio Content' });
-              messageSeverity = 'blue';
+            case 'excel':
+            case 'pdf':
+            case 'word':
+            case 'ppt':
+            case 'document_url': // Všechny typy dokumentů jdou přes Google Docs Viewer
+              let docUrl = responseData;
+              if (docUrl) {
+                // Použijeme Google Docs Viewer pro lepší kompatibilitu s oprávněními
+                const googleDocsViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(docUrl)}&embedded=true`;
+                aiMessage = `Váš požadavek byl úspěšně zpracován. Dokument se otevírá na nové stránce.`;
+                messageSeverity = 'green';
+                onDisplayIframe(googleDocsViewerUrl); // Předáme URL vieweru do iframe
+                setDisplayMediaContent(null);
+              } else {
+                aiMessage = `Nalezen povel pro dokument, ale URL je prázdná nebo neplatná.`;
+                messageSeverity = 'warning';
+              }
               break;
             case 'image':
               aiMessage = `Zde je obrázek na téma:`;
@@ -281,25 +288,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         </div>
       )}
 
-      {/* Video obsah */}
-      {displayMediaContent && displayMediaContent.type === 'video' && (
-        <div className="mt-4 w-full mb-6">
-          <video controls autoPlay className="w-[600px] block mx-auto">
-            <source src={displayMediaContent.src} type="video/mp4" />
-            Tvůj prohlížeč nepodporuje video tag.
-          </video>
-        </div>
-      )}
-      {/* Audio obsah */}
-      {displayMediaContent && displayMediaContent.type === 'audio' && (
-        <div className="mt-4 flex justify-center w-full mb-6">
-          <audio controls autoPlay className="w-[400px]">
-            <source src={displayMediaContent.src} type="audio/mpeg" />
-            Tvůj prohlížeč nepodporuje audio tag.
-          </audio>
-        </div>
-      )}
-      {/* Obrázek obsah */}
+      {/* Obrázek obsah - ponecháno pro přímé zobrazení obrázků, pokud funguje s direct linkem */}
       {displayMediaContent && displayMediaContent.type === 'image' && (
         <div className="mt-4 w-full text-center mb-6">
           <img src={displayMediaContent.src} alt={displayMediaContent.alt} className="max-w-full h-auto mx-auto" />
@@ -311,7 +300,7 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
         <input
           type="text"
           id="userInput"
-          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500" // Opravená syntaxe, odebrán komentář
+          className="w-full border border-gray-300 rounded-md p-3 text-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
           placeholder="Napište příkaz, např. Kontrola dat."
           value={userInput}
           onChange={(e) => setUserInput(e.target.value)}
@@ -532,9 +521,9 @@ function MarketplaceView({ onLaunchAgent }) {
   return (
     <div className="marketplace-container min-h-screen w-full bg-[#f0f0f0] flex flex-col items-center">
       <header className="w-full bg-[#2c3e50] text-white p-8 text-center shadow-md">
-        {/* Skrytí nadpisu a podnadpisu na mobilu */}
-        <h1 className="text-3xl sm:text-4xl font-bold text-white hidden sm:block">Smart Agent Platform</h1>
-        <h2 className="text-lg sm:text-xl mt-2 text-white hidden sm:block">Centrum specializovaných agentů</h2>
+        {/* Vráceno zobrazení nadpisů na všech obrazovkách */}
+        <h1 className="text-3xl sm:text-4xl font-bold text-white">Smart Agent Platform</h1>
+        <h2 className="text-lg sm:text-xl mt-2 text-white">Centrum specializovaných agentů</h2>
       </header>
 
       <section className="w-full max-w-4xl bg-[#e6f0fa] rounded-lg mx-auto mt-12 p-8 text-center shadow-md">
