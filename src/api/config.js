@@ -13,31 +13,37 @@ export const GOOGLE_SHEETS_SPREADSHEET_ID = "1GsMotMnkYHH6qicmpFiuq8OBGy5xA0S_JB
 export const GOOGLE_SHEETS_LIST_NAME = "List 2";
 
 // NOVÉ KONSTANTY PRO TABULKU S POVLY (COMMANDS)
-export const GOOGLE_SHEETS_COMMANDS_LIST_NAME = "List 1"; // Název listu pro povely, dle blueprintu
-export const GOOGLE_SHEETS_COMMANDS_RANGE = "A:C";       // Rozsah sloupců pro Povel, response_type, response_data
+export const GOOGLE_SHEETS_COMMANDS_LIST_NAME = "List 1";
+export const GOOGLE_SHEETS_COMMANDS_RANGE = "A:C";
 
 export async function loadWebhook() {
+    console.log("🚀 Spouštím loadWebhook funkci..."); // NOVÝ LOG
     let webhookUrl = null;
     try {
-        // Používáme GOOGLE_SHEETS_LIST_NAME, jelikož tato funkce je pro načítání webhooku z "List 2"
         const url = `https://sheets.googleapis.com/v4/spreadsheets/${GOOGLE_SHEETS_SPREADSHEET_ID}/values/'${GOOGLE_SHEETS_LIST_NAME}'!A:B?key=${GOOGLE_SHEETS_API_KEY}`;
         console.log("🔍 Načítám webhook z URL:", url);
+        console.log("⏳ Odesílám fetch požadavek..."); // NOVÝ LOG
         const response = await fetch(url);
+        console.log("✅ Fetch požadavek dokončen. Status:", response.status); // NOVÝ LOG
         if (!response.ok) {
+            console.error(`❌ Chyba při načítání webhooku: ${response.status} ${response.statusText}`); // DETAILNĚJŠÍ LOG
             throw new Error(`Chyba při načítání webhooku: ${response.status} ${response.statusText}`);
         }
         const data = await response.json();
-        const webhookRow = data.values.find(row => row[0] === "Webhook" || row[0] === "\"Webhook\"");
+        console.log("📄 Data z Google Sheets:", data); // NOVÝ LOG: Zobrazí celá data
+
+        const webhookRow = data.values.find(row => row[0] && row[0].trim() === "Webhook");
+
         if (webhookRow && webhookRow[1]) {
-            // Odstranění uvozovek z URL
-            webhookUrl = webhookRow[1].replace(/"/g, '');
+            webhookUrl = webhookRow[1].replace(/"/g, '').trim();
             localStorage.setItem('webhookUrl', webhookUrl);
             console.log("✅ Webhook URL načteno a uloženo:", webhookUrl);
         } else {
-            console.warn("⚠️ Webhook URL nebylo nalezeno v tabulce.");
+            console.warn("⚠️ Webhook URL nebylo nalezeno v tabulce nebo buňka B je prázdná. Zkontrolujte List 2."); // DETAILNĚJŠÍ UPOZORNĚNÍ
         }
     } catch (error) {
-        console.error("❌ Chyba při načítání webhooku:", error);
+        console.error("❌ Kritická chyba při načítání webhooku:", error); // ZMĚNA LOGU
     }
+    console.log("🏁 loadWebhook funkce dokončena. Návratová hodnota:", webhookUrl); // NOVÝ LOG
     return webhookUrl;
 }

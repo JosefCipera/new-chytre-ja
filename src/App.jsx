@@ -23,7 +23,7 @@ function IframeView({ url, onBack }) {
               style={{ backgroundColor: '#3498DB' }}
               className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
-              Zpět {/* Změna: Text tlačítka zkrácen */}
+              Zpět
             </button>
           </div>
         </>
@@ -36,14 +36,13 @@ function IframeView({ url, onBack }) {
             style={{ backgroundColor: '#3498DB' }}
             className="mt-4 text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            Zpět {/* Změna: Text tlačítka zkrácen */}
+            Zpět
           </button>
         </div>
       )}
     </div>
   );
 }
-
 
 // --- Komponenta pro zjednodušené rozhraní agenta (příkazový vstup) ---
 function AgentView({ agentName, description, onBack, onDisplayIframe }) {
@@ -52,155 +51,235 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
   const [latestAiResponse, setLatestAiResponse] = useState("");
   const [responseSeverity, setResponseSeverity] = useState('blue');
   const [loading, setLoading] = useState(false);
-  const [displayMediaContent, setDisplayMediaContent] = useState(null);
+  const [displayMediaContent, setDisplayMediaContent] = useState(null); // Může být { type: 'image'|'audio'|'video', src: 'url' }
   const [makeWebhookUrl, setMakeWebhookUrl] = useState(null);
 
   const [commandHistory, setCommandHistory] = useState([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
+  // --- NOVÉ STAVOVÉ PROMĚNNÉ PRO HLAS ---
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null); // Reference pro SpeechRecognition objekt
+
+  // --- FUNKCE PRO ZPRACOVÁNÍ PŘÍKAZU ---
+  // Nyní přijímá i makeWebhookUrl jako argument
+  const processCommand = useCallback(async (commandTextFromVoice = null, webhookUrlFromVoice = null) => { // ZMĚNA ZDE! Přidán useCallback
+    const command = commandTextFromVoice || userInput;
+
+    if (!command.trim()) {
+      setLatestAiResponse("Prosím zadejte příkaz.");
+      setResponseSeverity('red');
+      return;
+    }
+
+    // Použijeme URL předané z hlasu, nebo to ze stavu makeWebhookUrl
+    const urlToUse = webhookUrlFromVoice || makeWebhookUrl; // ZMĚNA ZDE!
+
+    if (!urlToUse) { // ZMĚNA ZDE!
+      setLatestAiResponse("Chyba: Webhook URL není k dispozici. Zkuste to prosím později.");
+      setResponseSeverity('red');
+      return;
+    }
+
+    setLoading(true);
+    setLatestAiResponse("Odesílám příkaz...");
+    setResponseSeverity('informative');
+    setDisplayMediaContent(null); // Vyčistí předchozí médium při odesílání nového příkazu
+
+    try {
+      // Přídání příkazu do historie, pokud není duplikát posledního
+      if (commandHistory.length === 0 || commandHistory[0] !== command) {
+        setCommandHistory(prev => [command, ...prev].slice(0, 10)); // Udržujeme posledních 10 příkazů
+        setHistoryIndex(-1); // Resetujeme index historie po odeslání nového příkazu
+      }
+
+      console.log(`Odesílám příkaz na Make.com: ${command} na URL: ${urlToUse}`);
+      const response = await fetch(urlToUse, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ command: command }),
+      });
+
+      const responseText = await response.text(); // Získáme raw text odpovědi
+
+      // --- Speciální ošetření pro odpověď "Accepted" ---
+      if (responseText === "Accepted") {
+        setLatestAiResponse("Příkaz byl úspěšně přijat službou Make.com.");
+        setResponseSeverity('green'); // Zelená pro úspěšné přijetí
+        setLoading(false);
+        setUserInput("");
+        return; // Důležité: Ukončíme funkci
+      }
+      // --- KONEC ZMĚN ---
+
+      let data; // Deklarujeme proměnnou 'data' zde
+      try {
+        data = JSON.parse(responseText); // Pokusíme se parsovat jako JSON
+      } catch (jsonError) {
+        console.error("Chyba při parsování JSON odpovědi:", jsonError);
+        console.error("Odpověď, která způsobila chybu:", responseText);
+        setLatestAiResponse(`Chyba: ${responseText || 'Neznámá odpověď z Make.com.'}`);
+        setResponseSeverity('red');
+        setLoading(false);
+        setUserInput("");
+        return; // Důležité: Ukončíme funkci, pokud JSON není validní
+      }
+
+
+      if (!response.ok) {
+        console.error("Make.com vrátil chybový HTTP status:", response.status, responseText);
+        setLatestAiResponse(`Make.com HTTP chyba: ${response.status} - ${data.message || 'Neznámá chyba'}.`);
+        setResponseSeverity('red');
+        return; // Důležité: Ukončíme, pokud je HTTP chyba
+      }
+
+      console.log("DEBUG: Celá odpověď z Make.com (parsovaná):", data);
+      console.log("DEBUG: Typ data.status:", typeof data.status, "Hodnota:", data.status);
+      console.log("DEBUG: Typ data.response_type:", typeof data.response_type, "Hodnota:", data.response_type);
+      console.log("DEBUG: Typ data.response_data:", typeof data.response_data, "Hodnota:", data.response_data);
+
+      // --- Zpracování odpovědi a barvy ---
+      if (data.response_type === 'notification' && data.response_data && data.response_data.message) {
+        setLatestAiResponse(`${data.response_data.message}`);
+        setResponseSeverity(data.response_data.severity || 'blue'); // Fallback na blue
+      } else if (data.response_type === 'text') {
+        setLatestAiResponse(`${data.response_data}`);
+        setResponseSeverity('green');
+      } else if (data.response_type === 'iframe' || data.response_type === 'url' || data.response_type === 'document_url') {
+        onDisplayIframe(data.response_data);
+        setLatestAiResponse("Přesměrovávám na obsah...");
+        setResponseSeverity('blue');
+      } else if (data.response_type === 'image') {
+        setDisplayMediaContent({ type: 'image', src: data.response_data, alt: 'Obrázek z AI' });
+        setLatestAiResponse("Zobrazen obrázek z AI.");
+        setResponseSeverity('blue');
+      } else if (data.response_type === 'audio') { // NOVINKA: Zpracování audia
+        setDisplayMediaContent({ type: 'audio', src: data.response_data, alt: 'Audio z AI' });
+        setLatestAiResponse("Přehrávám audio z AI.");
+        setResponseSeverity('blue');
+      } else if (data.response_type === 'video') { // NOVINKA: Zpracování videa
+        setDisplayMediaContent({ type: 'video', src: data.response_data, alt: 'Video z AI' });
+        setLatestAiResponse("Přehrávám video z AI.");
+        setResponseSeverity('blue');
+      }
+      else {
+        setLatestAiResponse(`Make.com: Neznámý typ odpovědi nebo chybějící data. ${data.message || 'Neznámá chyba'}.`);
+        setResponseSeverity('orange');
+      }
+
+    } catch (error) {
+      console.error("Kritická chyba při odesílání příkazu do Make.com:", error);
+      setLatestAiResponse(`Kritická chyba komunikace: ${error.message}.`);
+      setResponseSeverity('red');
+    } finally {
+      setLoading(false);
+      setUserInput(""); // Vyčistí vstupní pole po odeslání
+    }
+  }, [userInput, makeWebhookUrl, commandHistory, onDisplayIframe]);
+
+
   useEffect(() => {
     const getWebhook = async () => {
-      const url = await loadWebhook();
+      console.log("➡️ Volám getWebhook v useEffect...");
+
+      let url = null;
+      try {
+        console.log("🚀 Spouštím loadWebhook funkci přes await...");
+        url = await loadWebhook();
+        console.log("✅ loadWebhook vrátil:", url);
+      } catch (error) {
+        console.error("❌ Chyba při volání loadWebhook:", error);
+      }
+
+      // I když se nyní zdá, že webhook načítá, toto je dobrý fallback
+      if (!url) {
+        console.log("Fallback: Načítám webhook URL z localStorage...");
+        url = localStorage.getItem('webhookUrl');
+        if (url) {
+          console.log("✅ Webhook URL načteno z localStorage:", url);
+        } else {
+          console.warn("⚠️ Webhook URL není ani v localStorage.");
+        }
+      }
+
       if (url) {
         setMakeWebhookUrl(url);
-        console.log("Webhook URL načteno pro AgentView:", url);
+        console.log("Webhook URL nastaveno do stavu pro AgentView:", url);
       } else {
-        console.error("Nepodařilo se načíst Webhook URL z Google Sheets.");
+        console.error("Nepodařilo se načíst Webhook URL z Google Sheets nebo localStorage.");
         setLatestAiResponse("Chyba: Webhook URL nebylo načteno. Zkontrolujte konfiguraci.");
         setResponseSeverity('red');
       }
     };
     getWebhook();
-  }, []);
 
-  const processCommand = async () => {
-    if (!userInput.trim()) return;
-    if (!makeWebhookUrl) {
-      setLatestAiResponse("Webhook URL není k dispozici. Zkuste to prosím později.");
-      setResponseSeverity('red');
-      return;
+    // --- Inicializace SpeechRecognition API ---
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'cs-CZ';
+
+      recognitionRef.current.onstart = () => {
+        setIsListening(true);
+        setLatestAiResponse("Naslouchám...");
+        setResponseSeverity('informative'); // Změna na 'informative' (bude modrá)
+      };
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setUserInput(transcript);
+        setLatestAiResponse("Rozpoznáno: " + transcript);
+        setResponseSeverity('blue'); // Rozpoznáno je modře
+
+        // Použijeme callback pro setMakeWebhookUrl pro jistotu aktuální hodnoty
+        // a předáme ji processCommand
+        setMakeWebhookUrl(currentUrl => {
+          const urlToUse = currentUrl || localStorage.getItem('webhookUrl'); // Fallback na localStorage
+          if (urlToUse) {
+            processCommand(transcript, urlToUse); // Voláme processCommand s textem A URL
+          } else {
+            setLatestAiResponse("Chyba: Webhook URL není k dispozici pro hlasový povel. Zkuste to prosím později.");
+            setResponseSeverity('red');
+          }
+          setIsListening(false); // Zastavíme naslouchání po zpracování
+          return currentUrl; // Vrátíme aktuální URL pro zachování stavu
+        });
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error("Chyba rozpoznávání řeči:", event.error);
+        setIsListening(false);
+        setLatestAiResponse(`Chyba hlasového vstupu: ${event.error}.`);
+        setResponseSeverity('urgent');
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsListening(false);
+      };
+    } else {
+      console.warn("Speech Recognition API není podporováno ve vašem prohlížeči.");
     }
 
-    const currentUserInput = userInput;
-    // Změna: "Zpracovávám váš požadavek..." bude mít závažnost 'informative' (modrá)
-    setLatestAiResponse("Zpracovávám váš požadavek...");
-    setResponseSeverity('informative'); // Opraveno na 'informative'
-
-    if (currentUserInput.trim() !== "" && (commandHistory.length === 0 || commandHistory[commandHistory.length - 1] !== currentUserInput)) {
-      setCommandHistory((prev) => [...prev, currentUserInput]);
-    }
-    setHistoryIndex(-1);
-
-    setUserInput("");
-    setLoading(true);
-    setDisplayMediaContent(null);
-
-    try {
-      const response = await fetch(makeWebhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ userQuery: currentUserInput, agentName: agentName }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP chyba! Status: ${response.status}`);
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
+    };
 
-      const data = await response.json();
+  }, [processCommand]);
 
-      if (data && data.response_type) {
-        let aiMessage = '';
-        let messageSeverity = 'blue'; // Nastavíme defaultní závažnost na blue
 
-        const responseType = data.response_type.trim().toLowerCase().replace(/^"|"$/g, '');
-        let responseData = data.response_data; // Nyní responseData může být string NEBO objekt
-
-        // *************** ZDE JE KLÍČOVÁ ZMĚNA PRO NOTIFIKACE ***************
-        if (responseType === 'notification' && typeof responseData === 'object' && responseData !== null) {
-          // Pokud je response_type "notification" A responseData je již objekt (jak vrací Make.com)
-          aiMessage = `Notifikace: ${responseData.message || 'Zpráva notifikace není k dispozici.'}`;
-          messageSeverity = responseData.severity || 'green'; // Použijeme závažnost z dat, jinak default 'green'
-          // Doba trvání notifikace (duration) se nyní nepoužívá pro automatické skrytí na frontendu,
-          // ale hodnota je dostupná v responseData.duration
-          if (responseData.duration) {
-            console.log(`Doba trvání notifikace: ${responseData.duration}ms`);
-            // Zde byste mohli implementovat setTimeout pro automatické skrytí
-          }
-        } else {
-          // Pro ostatní typy nebo pokud response_data není objekt (např. prostý text), zpracujeme jako string
-          responseData = typeof responseData === 'string' ? responseData.replace(/^"|"$/g, '') : responseData;
-
-          // Zde následuje stávající switch pro ostatní response_type
-          switch (responseType) {
-            case 'text':
-              aiMessage = responseData;
-              messageSeverity = 'blue';
-              break;
-            case 'dashboard_looker':
-            case 'url':
-            case 'video': // Převedeno na zobrazení v iframe
-            case 'audio': // Převedeno na zobrazení v iframe
-              // Tyto typy používají přímou URL v iframe
-              let urlToDisplayIframe = responseData;
-              if (urlToDisplayIframe) {
-                aiMessage = `Váš požadavek byl úspěšně zpracován. Obsah se otevírá na nové stránce.`;
-                messageSeverity = 'green';
-                onDisplayIframe(urlToDisplayIframe);
-                setDisplayMediaContent(null); // Zajistíme skrytí nativního přehrávače
-              } else {
-                aiMessage = `Nalezen povel pro obsah, ale URL je prázdná nebo neplatná.`;
-                messageSeverity = 'warning';
-              }
-              break;
-            case 'excel':
-            case 'pdf':
-            case 'word':
-            case 'ppt':
-            case 'document_url': // Všechny typy dokumentů jdou přes Google Docs Viewer
-              let docUrl = responseData;
-              if (docUrl) {
-                // Použijeme Google Docs Viewer pro lepší kompatibilitu s oprávněními
-                const googleDocsViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(docUrl)}&embedded=true`;
-                aiMessage = `Váš požadavek byl úspěšně zpracován. Dokument se otevírá na nové stránce.`;
-                messageSeverity = 'green';
-                onDisplayIframe(googleDocsViewerUrl); // Předáme URL vieweru do iframe
-                setDisplayMediaContent(null);
-              } else {
-                aiMessage = `Nalezen povel pro dokument, ale URL je prázdná nebo neplatná.`;
-                messageSeverity = 'warning';
-              }
-              break;
-            case 'image':
-              aiMessage = `Zde je obrázek na téma:`;
-              setDisplayMediaContent({ type: 'image', src: responseData, alt: 'Image Content' });
-              messageSeverity = 'blue';
-              break;
-            // Případ 'notification' je nyní zpracován výše, mimo tento switch
-            default:
-              aiMessage = `Neznámý typ odpovědi: ${responseType}`;
-              messageSeverity = 'warning';
-              break;
-          }
-        }
-        // *************** KONEC ZMĚN PRO NOTIFIKACE ***************
-
-        setLatestAiResponse(aiMessage);
-        setResponseSeverity(messageSeverity);
-
-      } else {
-        setLatestAiResponse("AI agent neodpověděl smysluplně. Zkuste jiný dotaz.");
-        setResponseSeverity('warning');
-      }
-
-      setLoading(false);
-
-    } catch (error) {
-      console.error("Chyba při komunikaci s Make.com:", error);
-      setLatestAiResponse("Omlouvám se, došlo k chybě při zpracování vašeho požadavku. Zkuste to prosím znovu.");
-      setResponseSeverity('urgent');
-      setLoading(false);
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      setUserInput("");
+      setLatestAiResponse("");
+      recognitionRef.current.start();
     }
   };
 
@@ -210,14 +289,14 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
       if (historyIndex < commandHistory.length - 1) {
         const newIndex = historyIndex + 1;
         setHistoryIndex(newIndex);
-        setUserInput(commandHistory[commandHistory.length - 1 - newIndex]);
+        setUserInput(commandHistory[newIndex]);
       }
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (historyIndex > 0) {
         const newIndex = historyIndex - 1;
         setHistoryIndex(newIndex);
-        setUserInput(commandHistory[commandHistory.length - 1 - newIndex]);
+        setUserInput(commandHistory[newIndex]);
       } else if (historyIndex === 0) {
         setHistoryIndex(-1);
         setUserInput("");
@@ -225,77 +304,73 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
     }
   }, [commandHistory, historyIndex]);
 
-  // Funkce pro získání Tailwind CSS tříd na základě závažnosti notifikace
   const getSeverityClass = (severity) => {
-    let textColorClass = '';
-    let bgColorClass = '';
-    let borderColorClass = ''; // Pro 1px rámeček
-    let borderLeftColorClass = ''; // Pro 4px levý rámeček
-
     switch (severity) {
-      case 'urgent': // Červená (pozadí: FF E5 E5, text: 99 00 00)
-        textColorClass = 'text-[rgb(153,0,0)]';
-        bgColorClass = 'bg-[rgb(255,229,229)]';
-        borderColorClass = 'border-[rgb(153,0,0)]';
-        borderLeftColorClass = 'border-l-[rgb(153,0,0)]'; // Pro 4px levý rámeček
-        break;
-      case 'success': // Zelená (pozadí: E6 FF E6, text: 36 8A 36)
-        textColorClass = 'text-[rgb(54,138,54)]';
-        bgColorClass = 'bg-[rgb(230,255,230)]';
-        borderColorClass = 'border-[rgb(54,138,54)]';
-        borderLeftColorClass = 'border-l-[rgb(54,138,54)]';
-        break;
-      case 'informative': // Modrá (pozadí: E0 F7 FF, text: 1F 4E 7B)
-        textColorClass = 'text-[rgb(31,78,123)]';
-        bgColorClass = 'bg-[rgb(224,247,255)]';
-        borderColorClass = 'border-[rgb(31,78,123)]';
-        borderLeftColorClass = 'border-l-[rgb(31,78,123)]';
-        break;
-      case 'warning': // Oranžová (NOVÉ pozadí: #FAE5C6 -> rgb(250,229,198), text: #E05F00 -> rgb(224,95,0))
-        textColorClass = 'text-[rgb(224,95,0)]';
-        bgColorClass = 'bg-[rgb(250,229,198)]'; // Nové pozadí
-        borderColorClass = 'border-[rgb(224,95,0)]';
-        borderLeftColorClass = 'border-l-[rgb(224,95,0)]';
-        break;
+      case 'red':
+        return 'bg-red-100 text-red-700 border border-l-4 border-red-500';
+      case 'green':
+        return 'bg-green-100 text-green-700 border border-l-4 border-green-500';
+      case 'blue':
+        return 'bg-blue-100 text-blue-700 border border-l-4 border-blue-500';
+      case 'orange':
+        return 'bg-orange-100 text-orange-700 border border-l-4 border-orange-500';
+      case 'informative':
+        return 'bg-blue-100 text-blue-700 border border-l-4 border-blue-500';
+      case 'urgent':
+        return 'bg-red-100 text-red-700 border border-l-4 border-red-500';
+      case 'success':
+        return 'bg-green-100 text-green-700 border border-l-4 border-green-500';
+      case 'warning':
+        return 'bg-orange-100 text-orange-700 border border-l-4 border-orange-500';
       default:
-        textColorClass = 'text-gray-800';
-        bgColorClass = 'bg-gray-100';
-        borderColorClass = 'border-gray-800';
-        borderLeftColorClass = 'border-l-gray-800';
-        break;
+        return 'bg-gray-100 text-gray-700 border border-l-4 border-gray-500';
     }
-    // Kombinace tříd: 1px rámeček všude, a navíc 4px na levé straně (přepíše 1px na levé straně)
-    return `${bgColorClass} ${textColorClass} border ${borderColorClass} border-l-4 ${borderLeftColorClass}`;
   };
 
   return (
     <div className="agent-command-container bg-white rounded-lg shadow-xl p-6 max-w-7xl w-full mx-auto flex flex-col items-center">
-      {/* Skrytí nadpisu a popisu agenta na mobilu */}
       <h2 className="text-3xl font-bold text-center text-gray-800 mb-4 hidden sm:block">{agentName}</h2>
       <p className="text-center text-gray-600 mb-6 hidden sm:block">{description}</p>
 
       <div className="microphone-container mb-6 flex flex-col items-center">
-        <img id="microphoneIcon" src="images/microphone-192.png" alt="Microphone Icon" className="mic-icon w-36 h-36 mb-2 opacity-75" />
-        <div className="wave wave1"></div>
-        <div className="wave wave2"></div>
-        <div className="wave wave3"></div>
+        <img
+          id="microphoneIcon"
+          src="images/microphone-192.png"
+          alt="Microphone Icon"
+          className={`mic-icon w-36 h-36 mb-2 opacity-75 cursor-pointer ${isListening ? 'animate-pulse' : ''}`}
+          onClick={toggleListening}
+          title={isListening ? "Zastavit nahrávání" : "Spustit hlasové zadávání"}
+        />
+        {isListening && (
+          <>
+            <div className="wave wave1"></div>
+            <div className="wave wave2"></div>
+            <div className="wave wave3"></div>
+          </>
+        )}
       </div>
 
-      {/* Notifikace */}
       {latestAiResponse && (
         <div className={`voice-status p-3 rounded-lg mb-6 ${getSeverityClass(responseSeverity)} w-fit mx-auto`}>
           {latestAiResponse}
         </div>
       )}
 
-      {/* Obrázek obsah - ponecháno pro přímé zobrazení obrázků, pokud funguje s direct linkem */}
-      {displayMediaContent && displayMediaContent.type === 'image' && (
+      {/* NOVINKA: Zobrazení media obsahu (image, audio, video) */}
+      {displayMediaContent && (
         <div className="mt-4 w-full text-center mb-6">
-          <img src={displayMediaContent.src} alt={displayMediaContent.alt} className="max-w-full h-auto mx-auto" />
+          {displayMediaContent.type === 'image' && (
+            <img src={displayMediaContent.src} alt={displayMediaContent.alt} className="max-w-full h-auto mx-auto" />
+          )}
+          {displayMediaContent.type === 'audio' && (
+            <audio controls src={displayMediaContent.src} className="w-full max-w-md mx-auto" onError={(e) => console.error("Audio loading error:", e.target.error, displayMediaContent.src)}></audio>
+          )}
+          {displayMediaContent.type === 'video' && (
+            <video controls src={displayMediaContent.src} className="w-full max-w-md mx-auto" style={{ maxHeight: '400px' }} onError={(e) => console.error("Video loading error:", e.target.error, displayMediaContent.src)}></video>
+          )}
         </div>
       )}
 
-      {/* Vstupní pole - zúžení a tenký obrys */}
       <div className="w-full sm:w-2/3 md:w-1/2 lg:w-1/3 mb-4 max-w-md">
         <input
           type="text"
@@ -306,14 +381,14 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
           onChange={(e) => setUserInput(e.target.value)}
           onKeyPress={(e) => { if (e.key === 'Enter') processCommand(); }}
           onKeyDown={handleKeyDown}
+          disabled={isListening}
         />
       </div>
 
-      {/* Kontejner pro tlačítka "Odeslat" a "Zpět na Marketplace" - prohozené pořadí, stejná velikost */}
       <div className="flex justify-center space-x-4 mt-4 w-full">
         <button
-          onClick={processCommand}
-          disabled={loading || !makeWebhookUrl}
+          onClick={() => processCommand()}
+          disabled={loading || !makeWebhookUrl || isListening}
           style={{ backgroundColor: '#3498DB' }}
           className="text-white py-2 px-4 rounded-md shadow-sm hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
@@ -330,7 +405,6 @@ function AgentView({ agentName, description, onBack, onDisplayIframe }) {
     </div>
   );
 }
-
 
 // --- Komponenta pro Marketing Agenta (s původním obsahem z vašeho souboru) ---
 function MarketingAgentSpecificView({ onBack }) {
@@ -521,7 +595,6 @@ function MarketplaceView({ onLaunchAgent }) {
   return (
     <div className="marketplace-container min-h-screen w-full bg-[#f0f0f0] flex flex-col items-center">
       <header className="w-full bg-[#2c3e50] text-white p-8 text-center shadow-md">
-        {/* Vráceno zobrazení nadpisů na všech obrazovkách */}
         <h1 className="text-3xl sm:text-4xl font-bold text-white">Smart Agent Platform</h1>
         <h2 className="text-lg sm:text-xl mt-2 text-white">Centrum specializovaných agentů</h2>
       </header>
@@ -531,7 +604,6 @@ function MarketplaceView({ onLaunchAgent }) {
       </section>
 
       <main className="w-full max-w-7xl p-6 mt-8 flex-grow">
-        {/* Responzivní grid pro agenty: 1 sloupec na mobilu, 2 na sm, 4 na lg */}
         <div className="marketplace-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 justify-items-center">
           {agents.map((agent) => (
             <div key={agent.type} className="marketplace-item bg-[#e6f0fa] rounded-lg shadow-md p-8 text-center transition-transform duration-200 hover:scale-105 flex flex-col items-center justify-between w-full max-w-sm">
